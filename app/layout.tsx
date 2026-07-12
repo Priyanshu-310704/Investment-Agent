@@ -9,8 +9,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: 'InsideIIm Altuni Labs - AI Investment Research Agent',
-  description: 'AI-powered Investment Research Agent that researches companies and makes invest/pass decisions with detailed reasoning.',
+  title: 'InsideIIM Investment Research Workbench',
+  description: 'Multi-factor AI investment research dashboard with financial, valuation, development, market, risk, and governance analysis.',
 };
 
 export const viewport: Viewport = {

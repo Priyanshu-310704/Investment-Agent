@@ -2,23 +2,27 @@ import { ChatGroq } from "@langchain/groq";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
-import { ResearchReport } from "./types";
 import { search as ddgSearch } from "duck-duck-scrape";
+import { normalizeReportPayload } from "./report-utils";
+import { ResearchReport } from "./types";
 
-// Create custom search tool using duck-duck-scrape
 const searchTool = tool(
   async ({ query }) => {
     try {
       console.log(`[Agent Tool] Searching DDG for: "${query}"`);
       const searchResult = await ddgSearch(query);
-      if (!searchResult || !searchResult.results || searchResult.results.length === 0) {
+
+      if (!searchResult?.results?.length) {
         return "No results found.";
       }
-      // Return top 5 results as text
-      const formattedResults = searchResult.results.slice(0, 5).map((r, index) => {
-        return `[Source ${index + 1}] Title: ${r.title}\nURL: ${r.url}\nDescription: ${r.description || ''}\n`;
-      }).join("\n");
-      return formattedResults;
+
+      return searchResult.results.slice(0, 6).map((result, index) => {
+        return [
+          `[Source ${index + 1}] Title: ${result.title}`,
+          `URL: ${result.url}`,
+          `Description: ${result.description || ""}`,
+        ].join("\n");
+      }).join("\n\n");
     } catch (error: any) {
       console.error("DuckDuckGo search error:", error);
       return `Search failed: ${error.message || error}`;
@@ -26,27 +30,27 @@ const searchTool = tool(
   },
   {
     name: "web_search",
-    description: "Search the web for current information, financials, news, or details about a company. Input should be a specific search query.",
+    description: "Search the web for current company information, financials, valuation, news, risks, competitors, and governance details.",
     schema: z.object({
-      query: z.string().describe("The search query to execute"),
+      query: z.string().describe("A specific company research query."),
     }),
   }
 );
 
-const SYSTEM_PROMPT = `You are a senior investment research analyst. Your goal is to research a company and decide whether to INVEST or PASS.
-You must conduct thorough research using the web_search tool.
+const SYSTEM_PROMPT = `You are a world-class senior investment research analyst. Your goal is to produce a detailed, evidence-backed company research report and make a final recommendation: INVEST or PASS.
 
-Be diligent. You should search for:
-1. The company's business model, latest products/services, and industry position.
-2. Recent financial performance, earnings, key metrics (like P/E ratio, revenue growth, profit margins) if available.
-3. Market sentiment, recent news, and key catalysts.
-4. Major risks, competitive pressures, and potential red flags.
+Research must be multi-factor and must not hide important uncertainty. Use the web_search tool before deciding. Run at least 5 distinct searches and cover these areas:
+1. Business Quality: revenue model, product mix, moat, customers, operating model, leadership.
+2. Financial Health: revenue growth, margin profile, profitability, cash, debt, free cash flow, latest results.
+3. Valuation Discipline: P/E or forward P/E, EV/Sales or EV/EBITDA when available, valuation versus peers, what is priced in.
+4. Development Pipeline: product launches, R&D, partnerships, technology roadmap, expansion plans.
+5. Market Position: industry growth, market share, competitors, switching costs, demand cycle.
+6. Risk Control: regulatory, legal, supply chain, cyclicality, customer concentration, macro or execution risks. Higher score means better risk control.
+7. Sentiment & Governance: analyst sentiment, management credibility, capital allocation, insider or shareholder concerns when available.
 
-You must perform at least 2 or 3 distinct searches to gather sufficient information before making your decision. Do not rush to a decision.
+Use specific facts, figures, dates, and source URLs whenever possible. If a metric is unavailable, say that it was not found instead of inventing it. The final report should feel like an analyst dashboard, not a short chatbot answer.
 
-After you have gathered enough information, synthesize your findings and write a final analysis.
-Your final response MUST conclude with a valid JSON block containing your structured investment report. 
-Do not include any text after the JSON block.
+Your output MUST conclude with a valid JSON block containing your structured investment report. Do not include any text after the JSON block.
 
 The JSON block must follow this exact format:
 \`\`\`json
@@ -54,28 +58,100 @@ The JSON block must follow this exact format:
   "company_name": "Exact Name of the Company",
   "decision": "INVEST" or "PASS",
   "confidence": <integer between 0 and 100 representing your certainty>,
-  "summary": "A 2-3 sentence high-level summary of your decision and key findings.",
-  "bull_case": [
-    "Key reason 1 supporting your decision",
-    "Key reason 2 supporting your decision",
-    "Key reason 3 supporting your decision"
+  "summary": "A 3-4 sentence executive summary explaining the recommendation, strongest evidence, and biggest caveat.",
+  "investment_thesis": [
+    "Thesis point 1 with evidence.",
+    "Thesis point 2 with evidence.",
+    "Thesis point 3 with evidence."
   ],
-  "bear_case": [
-    "Key risk/concern 1",
-    "Key risk/concern 2",
-    "Key risk/concern 3"
+  "watch_items": [
+    "Specific metric, event, or risk the user should monitor.",
+    "Another watch item.",
+    "Another watch item."
+  ],
+  "factors": [
+    {
+      "key": "business",
+      "label": "Business Quality",
+      "score": <integer 0-100>,
+      "status": "strong" or "watch" or "weak",
+      "analysis": "A detailed 4-5 sentence paragraph with concrete facts.",
+      "evidence": ["Specific evidence point 1.", "Specific evidence point 2.", "Specific evidence point 3."],
+      "implication": "What this factor means for the final invest/pass decision."
+    },
+    {
+      "key": "financials",
+      "label": "Financial Health",
+      "score": <integer 0-100>,
+      "status": "strong" or "watch" or "weak",
+      "analysis": "A detailed 4-5 sentence paragraph.",
+      "evidence": ["Evidence point 1.", "Evidence point 2.", "Evidence point 3."],
+      "implication": "Decision implication."
+    },
+    {
+      "key": "valuation",
+      "label": "Valuation Discipline",
+      "score": <integer 0-100>,
+      "status": "strong" or "watch" or "weak",
+      "analysis": "A detailed 4-5 sentence paragraph.",
+      "evidence": ["Evidence point 1.", "Evidence point 2.", "Evidence point 3."],
+      "implication": "Decision implication."
+    },
+    {
+      "key": "development",
+      "label": "Development Pipeline",
+      "score": <integer 0-100>,
+      "status": "strong" or "watch" or "weak",
+      "analysis": "A detailed 4-5 sentence paragraph.",
+      "evidence": ["Evidence point 1.", "Evidence point 2.", "Evidence point 3."],
+      "implication": "Decision implication."
+    },
+    {
+      "key": "market",
+      "label": "Market Position",
+      "score": <integer 0-100>,
+      "status": "strong" or "watch" or "weak",
+      "analysis": "A detailed 4-5 sentence paragraph.",
+      "evidence": ["Evidence point 1.", "Evidence point 2.", "Evidence point 3."],
+      "implication": "Decision implication."
+    },
+    {
+      "key": "risks",
+      "label": "Risk Control",
+      "score": <integer 0-100; higher means lower risk>,
+      "status": "strong" or "watch" or "weak",
+      "analysis": "A detailed 4-5 sentence paragraph.",
+      "evidence": ["Evidence point 1.", "Evidence point 2.", "Evidence point 3."],
+      "implication": "Decision implication."
+    },
+    {
+      "key": "sentiment",
+      "label": "Sentiment & Governance",
+      "score": <integer 0-100>,
+      "status": "strong" or "watch" or "weak",
+      "analysis": "A detailed 4-5 sentence paragraph.",
+      "evidence": ["Evidence point 1.", "Evidence point 2.", "Evidence point 3."],
+      "implication": "Decision implication."
+    }
   ],
   "key_metrics": {
-    "Metric Name (e.g. Revenue Growth)": "Value (e.g. +25% YoY)",
-    "Metric Name 2": "Value 2"
+    "Metric Name (e.g. Forward P/E)": "Value (e.g. 35x)",
+    "Metric Name 2": "Value 2",
+    "Metric Name 3": "Value 3",
+    "Metric Name 4": "Value 4",
+    "Metric Name 5": "Value 5",
+    "Metric Name 6": "Value 6"
   },
   "sources": [
     "URL of Source 1",
-    "URL of Source 2"
+    "URL of Source 2",
+    "URL of Source 3",
+    "URL of Source 4",
+    "URL of Source 5"
   ]
 }
 \`\`\`
-Ensure all JSON keys and string values are properly formatted.`;
+Ensure all JSON keys and string values are properly formatted and escaped. Do not leave placeholder text in the JSON values.`;
 
 export async function runResearchAgent(companyName: string): Promise<ResearchReport> {
   const apiKey = process.env.GROQ_API_KEY;
@@ -83,8 +159,7 @@ export async function runResearchAgent(companyName: string): Promise<ResearchRep
     throw new Error("GROQ_API_KEY environment variable is not set.");
   }
 
-  // Use the user-defined model or a sensible modern default
-  const modelName = process.env.GROQ_MODEL || "llama-3.3-70b-versatile"; 
+  const modelName = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
   console.log(`Initializing ChatGroq with model: ${modelName}`);
 
   const llm = new ChatGroq({
@@ -99,35 +174,34 @@ export async function runResearchAgent(companyName: string): Promise<ResearchRep
     stateModifier: SYSTEM_PROMPT,
   });
 
-  console.log(`Starting research for company: "${companyName}"`);
-  
+  console.log(`Starting deep research for company: "${companyName}"`);
+
   const result = await agent.invoke({
     messages: [
       {
         role: "user",
-        content: `Conduct investment research on the company: "${companyName}". Decide whether to INVEST or PASS, and return the structured JSON report.`,
+        content: `Conduct in-depth multi-factor investment research on the company: "${companyName}". Use current web research, cover every requested factor, decide whether to INVEST or PASS, and return the structured JSON report matching the requested schema.`,
       },
     ],
   });
 
   const messages = result.messages;
   const lastMessage = messages[messages.length - 1];
-  const content = typeof lastMessage.content === "string" ? lastMessage.content : JSON.stringify(lastMessage.content);
+  const content = typeof lastMessage.content === "string"
+    ? lastMessage.content
+    : JSON.stringify(lastMessage.content);
 
   console.log("Agent run finished. Parsing response...");
 
-  // Extract the JSON block
   const jsonRegex = /```json\s*([\s\S]*?)\s*```/;
   const match = content.match(jsonRegex);
-  
+
   let jsonString = "";
-  if (match && match[1]) {
+  if (match?.[1]) {
     jsonString = match[1].trim();
   } else {
-    // Try to find raw JSON brackets
-    const bracketRegex = /(\{[\s\S]*\})/;
-    const bracketMatch = content.match(bracketRegex);
-    if (bracketMatch && bracketMatch[1]) {
+    const bracketMatch = content.match(/(\{[\s\S]*\})/);
+    if (bracketMatch?.[1]) {
       jsonString = bracketMatch[1].trim();
     }
   }
@@ -137,22 +211,8 @@ export async function runResearchAgent(companyName: string): Promise<ResearchRep
   }
 
   try {
-    const reportData = JSON.parse(jsonString);
-    
-    // Validate required fields
-    const validatedReport: ResearchReport = {
-      company_name: reportData.company_name || companyName,
-      decision: reportData.decision === "INVEST" ? "INVEST" : "PASS",
-      confidence: typeof reportData.confidence === "number" ? reportData.confidence : 50,
-      summary: reportData.summary || "No summary provided.",
-      bull_case: Array.isArray(reportData.bull_case) ? reportData.bull_case : [],
-      bear_case: Array.isArray(reportData.bear_case) ? reportData.bear_case : [],
-      key_metrics: typeof reportData.key_metrics === "object" && reportData.key_metrics !== null ? reportData.key_metrics : {},
-      sources: Array.isArray(reportData.sources) ? reportData.sources : [],
-      raw_response: content,
-    };
-
-    return validatedReport;
+    const reportData = JSON.parse(jsonString) as Record<string, unknown>;
+    return normalizeReportPayload(reportData, companyName, content);
   } catch (error: any) {
     console.error("JSON parsing error on content:", jsonString);
     throw new Error(`Failed to parse agent's JSON response: ${error.message}. Content was: ${jsonString}`);

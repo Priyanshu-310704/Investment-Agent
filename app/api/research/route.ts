@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server';
 import { runResearchAgent } from '@/lib/agent';
 import { saveReport } from '@/lib/db';
 
-// Allow this route to run up to 60 seconds (useful on Vercel deployment)
-export const maxDuration = 60;
+// Deeper multi-factor research may need extra time on serverless deployments.
+export const maxDuration = 120;
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
